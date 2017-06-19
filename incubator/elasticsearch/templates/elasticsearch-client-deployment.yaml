@@ -1,22 +1,18 @@
 apiVersion: apps/v1beta1
 kind: Deployment
 metadata:
-  name: "{{ printf "%s-client-%s" .Release.Name .Values.Name | trunc 24 }}"
+  name: {{ template "fullname" . }}-client
   labels:
-    heritage: {{.Release.Service | quote }}
-    release: {{.Release.Name | quote }}
-    chart: "{{.Chart.Name}}-{{.Chart.Version}}"
-    component: "{{.Release.Name}}-{{.Values.Component}}"
-    type: client
+    app: {{ template "fullname" . }}
+    chart: "{{ .Chart.Name }}-{{ .Chart.Version }}"
+    release: "{{ .Release.Name }}"
+    heritage: "{{ .Release.Service }}"
 spec:
-  replicas: {{default 2 .Values.ClientReplicas }}
+  replicas: {{ default 2 .Values.client.replicas }}
   template:
     metadata:
       labels:
-        heritage: {{.Release.Service | quote }}
-        release: {{.Release.Name | quote }}
-        chart: "{{.Chart.Name}}-{{.Chart.Version}}"
-        component: "{{.Release.Name}}-{{.Values.Component}}"
+        app: {{ template "fullname" . }}
         type: client
       annotations:
         # see https://www.elastic.co/guide/en/elasticsearch/reference/current/vm-max-map-count.html
@@ -33,12 +29,14 @@ spec:
           }
         ]'
     spec:
-      serviceAccountName: "{{ printf "%s-%s" .Release.Name .Values.Name | trunc 24 }}"
+      serviceAccountName: {{ template "fullname" . }}
       containers:
       - name: elasticsearch
         env:
         - name: SERVICE
-          value: "{{ printf "%s-cluster-%s" .Release.Name .Values.Name | trunc 24 }}"
+          value: {{ template "fullname" . }}-masters
+        - name: KUBERNETES_MASTER
+          value: kubernetes.default.svc.cluster.local
         - name: KUBERNETES_NAMESPACE
           valueFrom:
             fieldRef:
@@ -52,23 +50,16 @@ spec:
             resourceFieldRef:
               resource: limits.cpu
         - name: ES_JAVA_OPTS
-          value: "-Djava.net.preferIPv4Stack=true -Xms{{.Values.ClientHeapSize}} -Xmx{{.Values.ClientHeapSize}}"
-        - name: KUBERNETES_MASTER
-          value: kubernetes.default.svc.cluster.local
+          value: "-Djava.net.preferIPv4Stack=true -Xms{{ .Values.client.heapSize }} -Xmx{{ .Values..client.heapSize }}"
         resources:
-          requests:
-            cpu: "{{.Values.ClientCpuRequests}}"
-            memory: "{{.Values.ClientMemoryRequests}}"
-          limits:
-            cpu: "{{.Values.ClientCpuLimits}}"
-            memory: "{{.Values.ClientMemoryLimits}}"
+{{ toYaml .Values.client.resources | indent 12 }}
         readinessProbe:
           httpGet:
             path: /_cluster/health?local=true
             port: 9200
           initialDelaySeconds: 5
-        image: "{{.Values.Image}}:{{.Values.ImageTag}}"
-        imagePullPolicy: "{{.Values.ImagePullPolicy}}"
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        imagePullPolicy: {{ default "" .Values.image.pullPolicy | quote }}
         ports:
         - containerPort: 9200
           name: http
@@ -76,12 +67,12 @@ spec:
           name: transport
         volumeMounts:
         - mountPath: /usr/share/elasticsearch/config/elasticsearch.yml
-          name: elasticsearch-config
+          name: config
           subPath: elasticsearch.yml
         - mountPath: /usr/share/elasticsearch/config/logging.yml
-          name: elasticsearch-config
+          name: config
           subPath: logging.yml
       volumes:
-      - name: elasticsearch-config
+      - name: config
         configMap:
-          name: "{{ printf "%s-%s" .Release.Name .Values.Name | trunc 24 }}"
+          name: {{ template "fullname" . }}

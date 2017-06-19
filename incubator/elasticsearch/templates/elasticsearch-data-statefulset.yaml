@@ -1,23 +1,19 @@
 apiVersion: apps/v1beta1
 kind: StatefulSet
 metadata:
-  name: "{{ printf "%s-data-%s" .Release.Name .Values.Name | trunc 24 }}"
+  name: {{ template "fullname" . }}-data
   labels:
-    heritage: {{.Release.Service | quote }}
-    release: {{.Release.Name | quote }}
-    chart: "{{.Chart.Name}}-{{.Chart.Version}}"
-    component: "{{.Release.Name}}-{{.Values.Component}}"
-    type: data
+    app: {{ template "fullname" . }}
+    chart: "{{ .Chart.Name }}-{{ .Chart.Version }}"
+    release: "{{ .Release.Name }}"
+    heritage: "{{ .Release.Service }}"
 spec:
-  serviceName: "{{ printf "%s-data-%s" .Release.Name .Values.Name | trunc 24 }}"
-  replicas: {{default 3 .Values.DataReplicas }}
+  serviceName: {{ template "fullname" . }}-data
+  replicas: {{ default 3 .Values.data.replicas }}
   template:
     metadata:
       labels:
-        heritage: {{.Release.Service | quote }}
-        release: {{.Release.Name | quote }}
-        chart: "{{.Chart.Name}}-{{.Chart.Version}}"
-        component: "{{.Release.Name}}-{{.Values.Component}}"
+        app: {{ template "fullname" . }}
         type: data
       annotations:
         pod.alpha.kubernetes.io/initialized: "true"
@@ -35,17 +31,15 @@ spec:
           }
         ]'
     spec:
-      serviceAccountName: "{{ printf "%s-%s" .Release.Name .Values.Name | trunc 24 }}"
+      serviceAccountName: {{ template "fullname" . }}
       containers:
       - name: elasticsearch
         env:
         - name: SERVICE
-          value: "{{ printf "%s-cluster-%s" .Release.Name .Values.Name | trunc 24 }}"
+          value: {{ template "fullname" . }}-masters
+        - name: KUBERNETES_MASTER
+          value: kubernetes.default.svc.cluster.local
         - name: KUBERNETES_NAMESPACE
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.namespace
-        - name: POD_NAMESPACE
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
@@ -56,21 +50,14 @@ spec:
             resourceFieldRef:
               resource: limits.cpu
         - name: ES_JAVA_OPTS
-          value: "-Djava.net.preferIPv4Stack=true -Xms{{.Values.DataHeapSize}} -Xmx{{.Values.DataHeapSize}}"
-        - name: KUBERNETES_MASTER
-          value: kubernetes.default.svc.cluster.local
-        image: "{{.Values.Image}}:{{.Values.ImageTag}}"
-        imagePullPolicy: "{{.Values.ImagePullPolicy}}"
+          value: "-Djava.net.preferIPv4Stack=true -Xms{{ .Values.data.heapSize }} -Xmx{{ .Values.data.heapSize }}"
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        imagePullPolicy: {{ default "" .Values.image.pullPolicy | quote }}
         ports:
         - containerPort: 9300
           name: transport
         resources:
-          requests:
-            cpu: "{{.Values.DataCpuRequests}}"
-            memory: "{{.Values.DataMemoryRequests}}"
-          limits:
-            cpu: "{{.Values.DataCpuLimits}}"
-            memory: "{{.Values.DataMemoryLimits}}"
+{{ toYaml .Values.data.resources | indent 12 }}
         readinessProbe:
           httpGet:
             path: /_cluster/health?local=true
@@ -78,33 +65,33 @@ spec:
           initialDelaySeconds: 5
         volumeMounts:
         - mountPath: /usr/share/elasticsearch/data
-          name: elasticsearch-data
+          name: data
         - mountPath: /usr/share/elasticsearch/config/elasticsearch.yml
-          name: elasticsearch-config
+          name: config
           subPath: elasticsearch.yml
         - mountPath: /usr/share/elasticsearch/config/logging.yml
-          name: elasticsearch-config
+          name: config
           subPath: logging.yml
-        - name: elasticsearch-config
+        - name: config
           mountPath: /pre-stop-hook.sh
           subPath: pre-stop-hook.sh
         lifecycle:
           preStop:
             exec:
               command: ["/bin/bash","/pre-stop-hook.sh"]
-      terminationGracePeriodSeconds: {{.Values.DataTerminationGracePeriodSeconds}}
+      terminationGracePeriodSeconds: {{ .Values.data.terminationGracePeriodSeconds }}
       volumes:
-      - name: elasticsearch-config
+      - name: config
         configMap:
-          name: "{{ printf "%s-%s" .Release.Name .Values.Name | trunc 24 }}"
+          name: {{ template "fullname" . }}
   volumeClaimTemplates:
   - metadata:
-      name: elasticsearch-data
+      name: data
     spec:
       accessModes: [ ReadWriteOnce ]
-    {{- if .Values.DataStorageClass }}
-      storageClassName: "{{.Values.DataStorageClass}}"
+    {{- if .Values.data.storageClass }}
+      storageClassName: "{{ .Values.data.storageClass }}"
     {{- end }}
       resources:
         requests:
-          storage: "{{.Values.DataStorage}}"
+          storage: "{{ .Values.data.storage }}"
